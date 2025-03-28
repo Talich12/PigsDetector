@@ -1,0 +1,6 @@
+/marking/assets
+train/Dataset
+train/results
+train/runs
+train/test_shots
+*yolov8n.pt
