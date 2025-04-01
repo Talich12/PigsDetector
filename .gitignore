@@ -4,3 +4,5 @@ train/results
 train/runs
 train/test_shots
 *yolov8n.pt
+*.ts
+*.m3u8
