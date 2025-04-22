@@ -6,3 +6,5 @@ train/test_shots
 *yolov8n.pt
 *.ts
 *.m3u8
+*.mp4
+/train/test3.py
