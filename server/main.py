@@ -23,16 +23,18 @@ print(f"Frame size: {width}x{height}, FPS: {fps}")
 rtsp_output_url = "rtsp://192.168.0.105:8554/yolo_output"  # Replace with your output RTSP URL
 ffmpeg_cmd = [
     'ffmpeg',
+    '-re',  # Важно! Режим реального времени
     '-y',
     '-f', 'rawvideo',
     '-vcodec', 'rawvideo',
     '-pix_fmt', 'bgr24',
     '-s', f'{width}x{height}',
-    '-r', str(fps),
+    '-r', '25',
     '-i', '-',
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-tune', 'zerolatency',
+    '-vsync', 'cfr',
     '-f', 'rtsp',
     rtsp_output_url
 ]
@@ -59,7 +61,7 @@ try:
         
         cv2.imshow("Camera Preview", frame)
         # Object tracking on the frame
-        results = model.track(frame, tracker="bytetrack.yaml", persist=True, conf=0.5)
+        results = model.track(frame, tracker="bytetrack.yaml", persist=True, conf=0.5, verbose=False)
         annotated_frame = frame.copy()
         
         # If there are detected objects with tracks
