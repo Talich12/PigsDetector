@@ -8,3 +8,5 @@ train/test_shots
 *.m3u8
 *.mp4
 /train/test3.py
+test.py
+*__pycache__
