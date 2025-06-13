@@ -11,7 +11,7 @@ import os
 import time
 
 # Configuration
-SHOW_DISPLAY = False  # Set to False to disable display windows
+SHOW_DISPLAY = True  # Set to False to disable display windows
 MODEL_PATH = "/home/podonok/diplom/best.pt"
 
 # Load your trained model
@@ -19,7 +19,7 @@ model = YOLO(MODEL_PATH)
 
 # Load streams from JSON
 def load_streams_config():
-    with open('streams.json', 'r') as f:
+    with open('config.json', 'r') as f:
         config = json.load(f)
         return config.get('stream_files', [])
 
@@ -161,9 +161,17 @@ def display_frames(frame_queue, num_streams, stop_event):
 
 def main():
     streams = load_streams_config()
+    f=open('/home/podonok/diplom/server/config.json')
+    data=json.load(f)
+    print(data['IP'])
     input_sources = [f"rtsp://localhost:8554/mystream{i+1}" for i in range(len(streams))]
-    output_urls = [f"rtsp://192.168.0.105:8554/yolo_output{i+1}" for i in range(len(streams))]
-    
+    output_urls = [f"rtsp://{data['IP']}:8554/yolo_output{i+1}" for i in range(len(streams))]
+    output_hls = [f"http://{data['IP']}:8000/output{i+1}.m3u8" for i in range(len(streams))]
+
+    output_data = {'streams': output_hls}
+    with open('streams.json', 'w') as f:
+        json.dump(output_data, f, indent=4)
+
     stop_event = Event()
     frame_queue = queue.Queue(maxsize=10) if SHOW_DISPLAY else None
     threads = []
