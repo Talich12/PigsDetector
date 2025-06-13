@@ -1,3 +1,6 @@
 {
-    "stream_files": ["/home/podonok/diplom/marking/assets/videos/1.mp4", "/home/podonok/diplom/marking/assets/videos/2.mp4"]
+    "streams": [
+        "http://192.168.0.101:8000/output1.m3u8",
+        "http://192.168.0.101:8000/output2.m3u8"
+    ]
 }
