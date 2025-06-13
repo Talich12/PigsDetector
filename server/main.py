@@ -20,7 +20,7 @@ fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
 print(f"Frame size: {width}x{height}, FPS: {fps}")
 
 # RTSP output settings
-rtsp_output_url = "rtsp://192.168.0.105:8554/yolo_output"  # Replace with your output RTSP URL
+rtsp_output_url = "rtsp://192.168.9.101:8554/yolo_output"  # Replace with your output RTSP URL
 ffmpeg_cmd = [
     'ffmpeg',
     '-re',  # Важно! Режим реального времени
