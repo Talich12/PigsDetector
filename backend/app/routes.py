@@ -1,12 +1,92 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import json
 from app import app
 import psutil
 import os
 import subprocess
+import time
+import atexit
 
 
 process = None
+CONFIG_PATH = "/home/podonok/diplom/server/config.json"
+DATA_FOLDER = "/home/podonok/diplom/server/"
+
+def start_streams_script():
+    """Запускает скрипт start_streams.sh в фоне"""
+    os.system("nohup /bin/bash start_streams.sh > /tmp/streams.log 2>&1 &")
+
+def stop_streams_script():
+    """Запускает скрипт stop_streams.sh и возвращает результат"""
+    return os.popen("/bin/bash stop_streams.sh").read().strip()
+
+
+@app.route('/start')
+def start_streams():
+    try:
+        start_streams_script()
+        return "Стримы запускаются... Проверьте логи в /tmp/streams.log"
+    except Exception as e:
+        return f"Ошибка запуска: {str(e)}"
+
+@app.route('/stop')
+def stop_streams():
+    try:
+        result = stop_streams_script()
+        return result or "Все стримы остановлены"
+    except Exception as e:
+        return f"Ошибка остановки: {str(e)}"
+
+
+@app.route('/change_conf', methods=['POST'])
+def change_conf():
+    data = request.get_json()
+    print(data)
+    # Читаем текущий конфиг
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    print(config)
+    # Обновляем нужные параметры
+    config['conf'] = data['conf']
+    
+    # Записываем обратно с правильным форматированием
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    stop_streams_script()
+    start_streams_script()
+
+    return {"status": True}
+
+@app.route('/change_tracking_mode', methods=['POST'])
+def change_tracking_mode():
+    data = request.get_json()
+    print(data)
+    # Читаем текущий конфиг
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    print(config)
+    # Обновляем нужные параметры
+    config['tracking_mode'] = data['tracking_mode']
+    
+    # Записываем обратно с правильным форматированием
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    stop_streams_script()
+    start_streams_script()
+
+    return {"status": True}
+
+@app.route('/data/<id>')
+def data(id):
+
+    with open(DATA_FOLDER + f'tracking_data_stream_{id}.json', 'r') as f:
+        data = json.load(f)
+
+    return data
 
 @app.route('/streams', methods=['GET'])
 def send_json():
@@ -28,34 +108,16 @@ def stats():
     
     return json.dumps(data)
 
+def auto_start_streams():
+    """Автоматически вызывает /start при запуске"""
+    with app.test_request_context():
+        response = start_streams()
+        print(response)  # Для отладки
 
-@app.route('/start_script', methods=['GET'])
-def start_script():
-    global process
-    if process is not None:
-        return jsonify({'status': 'error', 'message': 'Script is already running'}), 400
-    
-    try:
-        # Запуск скрипта в новом терминале (для Linux)
-        process = subprocess.Popen(['gnome-terminal', '--', 'bash', '-c', '/home/podonok/diplom/start_streams.sh; exec bash'])
-        # Для macOS можно использовать: ['open', '-a', 'Terminal', './your_script.sh']
-        # Для Windows: ['start', 'cmd', '/k', 'your_script.bat']
-        
-        return jsonify({'status': 'success', 'message': 'Script started successfully'})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+# Регистрируем остановку при завершении
+atexit.register(lambda: stop_streams())
 
-@app.route('/stop_script', methods=['GET'])
-def stop_script():
-    global process
-    if process is None:
-        return jsonify({'status': 'error', 'message': 'No script is running'}), 400
-    
-    try:
-        # Завершаем процесс
-        process.terminate()
-        process = None
-        return jsonify({'status': 'success', 'message': 'Script stopped successfully'})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
+# Автозапуск только в основном процессе (не в reloader)
+if os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+    time.sleep(2)  # Даем время на инициализацию Flask
+    auto_start_streams()
