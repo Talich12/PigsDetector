@@ -11,3 +11,5 @@ train/test_shots
 /train/test3.py
 test.py
 *__pycache__
+tracking_data_stream_1.json
+tracking_data_stream_2.json
