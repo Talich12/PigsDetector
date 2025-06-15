@@ -9,7 +9,7 @@ import queue
 import json
 import os
 import time
-
+from datetime import datetime
 # Configuration
 SHOW_DISPLAY = True  # Set to False to disable display windows
 MODEL_PATH = "/home/podonok/diplom/best.pt"
@@ -29,6 +29,22 @@ class TrackData:
         self.history = defaultdict(lambda: [])
         self.colors = defaultdict(tuple)
         self.weights = defaultdict(int)
+        self.confidences = defaultdict(float)
+        self.last_update_time = 0
+        self.frame_data = []
+
+def write_frame_data(frame_data, stream_idx):
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"tracking_data_stream_{stream_idx+1}.json"
+    
+    data = {
+        "timestamp": datetime.now().isoformat(),
+        "objects": frame_data
+    }
+    
+    with open(filename, 'w') as f:
+        json.dump(data, f, indent=2)
+    print(f"Saved tracking data to {filename}")
 
 def generate_random_color():
     return (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
@@ -36,7 +52,7 @@ def generate_random_color():
 def generate_random_weight():
     return random.randint(75, 90)
 
-def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue):
+def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue, conf, tracking_mode):
     track_data = TrackData()
     cap = cv2.VideoCapture(input_source)
     if not cap.isOpened():
@@ -68,6 +84,9 @@ def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue
     ]
 
     ffmpeg_process = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
+    
+    # Переменная для отслеживания времени
+    last_save_time = time.time()
 
     try:
         while not stop_event.is_set():
@@ -81,15 +100,19 @@ def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue
                     break
                 continue
             
-            results = model.track(frame, tracker="bytetrack.yaml", persist=True, conf=0.5, verbose=False)
+            results = model.track(frame, tracker="bytetrack.yaml", persist=True, conf=conf, verbose=False)
             annotated_frame = frame.copy()
+            
+            # Очищаем данные кадра
+            track_data.frame_data = []
             
             if results[0].boxes.id is not None:
                 boxes = results[0].boxes.xywh.cpu()
                 track_ids = results[0].boxes.id.int().cpu().tolist()
                 clss = results[0].boxes.cls.int().cpu().tolist()
+                confidences = results[0].boxes.conf.float().cpu().tolist()
                 
-                for box, track_id, cls in zip(boxes, track_ids, clss):
+                for box, track_id, cls, confidence in zip(boxes, track_ids, clss, confidences):
                     x, y, w, h = box
                     center = (int(x), int(y))
                     
@@ -97,11 +120,28 @@ def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue
                         track_data.colors[track_id] = generate_random_color()
                         track_data.weights[track_id] = generate_random_weight()
                     
+                    track_data.confidences[track_id] = confidence
+                    
+                    # Сохраняем данные объекта для JSON
+                    obj_data = {
+                        "id": int(track_id),
+                        "bbox": {
+                            "x": float(x),
+                            "y": float(y),
+                            "width": float(w),
+                            "height": float(h)
+                        },
+                        "confidence": float(confidence),
+                        "class": int(cls),
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    track_data.frame_data.append(obj_data)
+                    
                     track_data.history[track_id].append(center)
                     if len(track_data.history[track_id]) > 30:
                         track_data.history[track_id].pop(0)
                     
-                    if len(track_data.history[track_id]) > 1:
+                    if tracking_mode and len(track_data.history[track_id]) > 1:
                         points = np.array(track_data.history[track_id], dtype=np.int32)
                         cv2.polylines(annotated_frame, [points], isClosed=False, 
                                      color=track_data.colors[track_id], thickness=2)
@@ -111,10 +151,17 @@ def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), 
                                  track_data.colors[track_id], 2)
                     
-                    label = f"ID: {track_id} Pig | {track_data.weights[track_id]}kg"
+                    confidence_percent = confidence * 100
+                    label = f"ID: {track_id} Pig | {track_data.weights[track_id]}kg | {confidence_percent:.1f}%"
                     cv2.putText(annotated_frame, label, (x1, y1 - 10), 
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, 
                                 track_data.colors[track_id], 2)
+            
+            # Сохраняем данные каждую секунду
+            current_time = time.time()
+            if current_time - last_save_time >= 1.0 and track_data.frame_data:
+                write_frame_data(track_data.frame_data, stream_idx)
+                last_save_time = current_time
             
             if annotated_frame.shape[:2] != (height, width):
                 annotated_frame = cv2.resize(annotated_frame, (width, height))
@@ -124,6 +171,10 @@ def process_stream(stream_idx, input_source, output_url, stop_event, frame_queue
                 frame_queue.put((stream_idx, annotated_frame))
 
     finally:
+        # Сохраняем последние данные перед выходом
+        if track_data.frame_data:
+            write_frame_data(track_data.frame_data, stream_idx)
+        
         cap.release()
         ffmpeg_process.stdin.close()
         ffmpeg_process.wait()
@@ -183,7 +234,7 @@ def main():
         
         for i, (input_src, output_url) in enumerate(zip(input_sources, output_urls)):
             thread = Thread(target=process_stream, 
-                          args=(i, input_src, output_url, stop_event, frame_queue))
+                          args=(i, input_src, output_url, stop_event, frame_queue, data['conf'], data['tracking_mode']))
             thread.daemon = True
             thread.start()
             threads.append(thread)
