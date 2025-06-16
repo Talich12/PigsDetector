@@ -6,11 +6,98 @@ import os
 import subprocess
 import time
 import atexit
+import shutil
+from glob import glob
+from natsort import natsorted
+from datetime import datetime
 
 
 process = None
 CONFIG_PATH = "/home/podonok/diplom/server/config.json"
 DATA_FOLDER = "/home/podonok/diplom/server/"
+
+def combine_ts_streams(input_dir="/home/podonok/diplom/server/streams", output_dir="/home/podonok/diplom/server/videos"):
+    """
+    Объединяет .ts файлы для каждого стрима и очищает исходную директорию
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Находим уникальные имена стримов
+    ts_files = glob(os.path.join(input_dir, "*.ts"))
+    stream_names = {os.path.basename(f).split("_")[0] for f in ts_files}
+    
+    if not stream_names:
+        print("Нет .ts файлов для обработки")
+        return
+
+    print(f"Найдены стримы: {', '.join(stream_names)}")
+
+    # Временная папка для резервного копирования (на случай ошибки)
+    temp_backup_dir = os.path.join(input_dir, "temp_backup")
+    os.makedirs(temp_backup_dir, exist_ok=True)
+
+    try:
+        for stream in sorted(stream_names):
+            stream_files = natsorted(glob(os.path.join(input_dir, f"{stream}_*.ts")))
+            
+            if not stream_files:
+                print(f"Пропуск стрима {stream} - нет файлов")
+                continue
+
+            # Создаём резервную копию перед обработкой
+            for file in stream_files:
+                shutil.copy2(file, temp_backup_dir)
+
+            # Генерируем список для ffmpeg
+            list_file = os.path.join(input_dir, f"{stream}_list.txt")
+            with open(list_file, "w") as f:
+                for file in stream_files:
+                    f.write(f"file '{os.path.basename(file)}'\n")
+
+            # Выходной файл с timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            output_file = os.path.join(output_dir, f"{stream}_{timestamp}.mp4")
+
+            print(f"Обработка {stream} ({len(stream_files)} файлов)...")
+
+            try:
+                subprocess.run([
+                    "ffmpeg",
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", list_file,
+                    "-c", "copy",
+                    "-y",
+                    output_file
+                ], check=True)
+                
+                # Удаляем только если конвертация успешна
+                for file in stream_files:
+                    os.unlink(file)
+                print(f"Видео сохранено: {output_file}")
+
+            except subprocess.CalledProcessError as e:
+                print(f"Ошибка конвертации {stream}: {e}")
+                print("Восстанавливаем файлы из резервной копии")
+                for file in stream_files:
+                    if not os.path.exists(file):
+                        backup = os.path.join(temp_backup_dir, os.path.basename(file))
+                        shutil.copy2(backup, file)
+            finally:
+                if os.path.exists(list_file):
+                    os.unlink(list_file)
+
+    finally:
+        # Удаляем резервную копию в любом случае
+        if os.path.exists(temp_backup_dir):
+            shutil.rmtree(temp_backup_dir)
+        
+        # Дополнительная очистка пустой директории
+        if not glob(os.path.join(input_dir, "*")):
+            print(f"Директория {input_dir} пуста")
+        else:
+            print("Остались необработанные файлы")
+
 
 def start_streams_script():
     """Запускает скрипт start_streams.sh в фоне"""
@@ -20,6 +107,10 @@ def stop_streams_script():
     """Запускает скрипт stop_streams.sh и возвращает результат"""
     return os.popen("/bin/bash stop_streams.sh").read().strip()
 
+def refresh_streams():
+    combine_ts_streams()
+    start_streams_script()
+    stop_streams_script()
 
 @app.route('/start')
 def start_streams():
@@ -54,8 +145,7 @@ def change_conf():
     with open(CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
     
-    stop_streams_script()
-    start_streams_script()
+    refresh_streams()
 
     return {"status": True}
 
@@ -75,8 +165,47 @@ def change_tracking_mode():
     with open(CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
     
-    stop_streams_script()
-    start_streams_script()
+    refresh_streams()
+
+    return {"status": True}
+
+@app.route('/change_clahe', methods=['POST'])
+def change_clahe():
+    data = request.get_json()
+    print(data)
+    # Читаем текущий конфиг
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    print(config)
+    # Обновляем нужные параметры
+    config['clahe'] = data['clahe']
+    
+    # Записываем обратно с правильным форматированием
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    refresh_streams()
+
+    return {"status": True}
+
+@app.route('/change_model', methods=['POST'])
+def change_model():
+    data = request.get_json()
+    print(data)
+    # Читаем текущий конфиг
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    print(config)
+    # Обновляем нужные параметры
+    config['model'] = data['model']
+    
+    # Записываем обратно с правильным форматированием
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    refresh_streams()
 
     return {"status": True}
 
