@@ -10,6 +10,7 @@ train/test_shots
 *.jpg
 /train/test3.py
 test.py
+test2.py
 *__pycache__
 tracking_data_stream_1.json
 tracking_data_stream_2.json
