@@ -41,7 +41,7 @@ for ((i=1; i<=STREAMS_COUNT; i++)); do
         -rtsp_transport tcp \
         -i "rtsp://${RTSP_IP}:8554/yolo_output$i" \
         -c:v copy -c:a aac -fflags +genpts \
-        -f hls -hls_time 1 -hls_list_size 3 -hls_flags delete_segments \
+        -f hls -hls_time 1 -hls_list_size 0 -hls_flags delete_segments \
         -hls_segment_filename "output${i}_%03d.ts" \
         "output${i}.m3u8" &
     echo $! >> $PID_FILE
